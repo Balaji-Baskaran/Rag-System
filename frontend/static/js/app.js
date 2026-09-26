@@ -1,259 +1,176 @@
-/**
- * StudentRAG — Frontend
- * Full RAG via Llama 3.3 70B on OpenRouter.
- */
+const API = "";
+let isLoading = false, sessionId = null;
+const $ = id => document.getElementById(id);
+const chatWindow = $("chat-window"), queryInput = $("query-input"), sendBtn = $("send-btn"),
+      uploadZone = $("upload-zone"), fileInput = $("file-input"), uploadStatus = $("upload-status"),
+      sourcesList = $("sources-list"), chatsList = $("chats-list");
+const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+const trunc = (s,n) => s.length > n ? "…"+s.slice(-(n-1)) : s;
 
-const API_BASE = "";
-let isLoading  = false;
-
-const chatWindow   = document.getElementById("chat-window");
-const queryInput   = document.getElementById("query-input");
-const sendBtn      = document.getElementById("send-btn");
-const uploadZone   = document.getElementById("upload-zone");
-const fileInput    = document.getElementById("file-input");
-const uploadStatus = document.getElementById("upload-status");
-const sourcesList  = document.getElementById("sources-list");
-
-// ── Init ──────────────────────────────────────────────────────────────────────
 window.addEventListener("DOMContentLoaded", () => {
-  checkHealth();
-  setInterval(checkHealth, 30_000);
-
-  uploadZone.addEventListener("dragover",  e => { e.preventDefault(); uploadZone.classList.add("dragover"); });
+  checkHealth(); setInterval(checkHealth, 30000); initSession(); loadSessions();
+  uploadZone.addEventListener("dragover", e => { e.preventDefault(); uploadZone.classList.add("dragover"); });
   uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("dragover"));
-  uploadZone.addEventListener("drop",      e => { e.preventDefault(); uploadZone.classList.remove("dragover"); handleFiles(e.dataTransfer.files); });
+  uploadZone.addEventListener("drop", e => { e.preventDefault(); uploadZone.classList.remove("dragover"); handleFiles(e.dataTransfer.files); });
   fileInput.addEventListener("change", () => handleFiles(fileInput.files));
 });
 
-// ── Health ────────────────────────────────────────────────────────────────────
-async function checkHealth() {
-  const el = id => document.getElementById(id);
+// Session
+async function initSession() {
+  try { sessionId = (await (await fetch(`${API}/api/session/new`, {method:"POST"})).json()).session_id; }
+  catch { sessionId = crypto.randomUUID().slice(0,8); }
+}
+async function newSession() {
+  await initSession(); clearChat();
+  document.querySelectorAll("#chats-list li").forEach(el => el.classList.remove("active"));
+  appendMsg("system-message", "⬡", `<p>Hello! I'm <strong>StudentRAG</strong>. Upload a PDF and ask me anything.</p>`);
+  loadSessions();
+}
+
+async function loadSessions() {
   try {
-    const data = await fetch(`${API_BASE}/api/health`).then(r => r.json());
+    const {sessions=[]} = await fetch(`${API}/api/sessions`).then(r=>r.json());
+    if (!chatsList) return;
+    chatsList.innerHTML = sessions.length
+      ? sessions.map(s=>`
+        <li class="${s.session_id===sessionId?'active':''}" onclick="switchSession('${s.session_id}')" title="${esc(s.title)}">
+          <svg class="chat-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span class="chat-title">${esc(s.title)}</span>
+        </li>`).join("")
+      : '<li class="chats-empty">No previous chats.</li>';
+  } catch {}
+}
 
-    el("status-api").textContent = "online";
-    el("status-api").className   = "status-badge ok";
-
-    const llmOk = data.llm_configured;
-    el("status-llm").textContent = llmOk ? "ready" : "no key";
-    el("status-llm").className   = `status-badge ${llmOk ? "ok" : "error"}`;
-
-
-
-    const colOk = data.collection_status === "ready";
-    el("status-col").textContent = data.collection_status || "—";
-    el("status-col").className   = `status-badge ${colOk ? "ok" : "error"}`;
-    el("status-chunks").textContent = (data.total_chunks ?? 0).toLocaleString();
-
-    if (colOk) updateSourcesList();
-  } catch {
-    ["status-api","status-llm","status-col"].forEach(k => {
-      const e = document.getElementById(k);
-      if (e) { e.textContent = "error"; e.className = "status-badge error"; }
-    });
+async function switchSession(sid) {
+  if (sessionId === sid) return;
+  sessionId = sid; clearChat();
+  document.querySelectorAll("#chats-list li").forEach(el => el.classList.toggle("active", el.getAttribute("onclick")?.includes(sid)));
+  try {
+    const {messages=[]} = await fetch(`${API}/api/session/${sid}/history`).then(r=>r.json());
+    if (!messages.length) {
+      appendMsg("system-message", "⬡", `<p>Empty session.</p>`);
+    } else {
+      for (const m of messages) {
+        if (m.role === "human") appendMsg("user-message", "U", `<p>${esc(m.content)}</p>`);
+        else appendMsg("bot-message", "⬡", `<div class="answer-block">${marked.parse(m.content)}</div>`);
+      }
+    }
+  } catch(e) {
+    appendMsg("system-message", "!", `<p>Failed to load session: ${esc(e.message)}</p>`);
   }
 }
 
-async function updateSourcesList() {
+// Health
+async function checkHealth() {
   try {
-    const { sources = [] } = await fetch(`${API_BASE}/api/stats`).then(r => r.json());
+    const d = await fetch(`${API}/api/health`).then(r=>r.json());
+    const el = $("status-chunks");
+    if (el) el.textContent = (d.total_chunks??0).toLocaleString();
+    if (d.collection_status==="ready") updateSources();
+  } catch {}
+}
+async function updateSources() {
+  try {
+    const {sources=[]} = await fetch(`${API}/api/stats`).then(r=>r.json());
     sourcesList.innerHTML = sources.length
-      ? sources.map(s => `<li class="has-source" title="${s}">${truncate(s, 28)}</li>`).join("")
+      ? sources.map(s=>`
+        <li class="has-source" title="${esc(s)}">
+          <svg class="file-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="file-name">${esc(trunc(s,24))}</span>
+        </li>`).join("")
       : '<li class="sources-empty">No sources indexed yet.</li>';
-  } catch { /* silent */ }
+  } catch {}
 }
 
-// ── Chat ──────────────────────────────────────────────────────────────────────
-function handleKeyDown(e) {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuery(); }
-}
+// Chat
+function handleKeyDown(e) { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendQuery();} }
 
 async function sendQuery() {
-  const question = queryInput.value.trim();
-  if (!question || isLoading) return;
-
-  appendUserMessage(question);
-  queryInput.value = "";
-  updateCharCount(queryInput);
-  autoResize(queryInput);
-
-  const loadingId = appendLoading();
-  setLoading(true);
-
-  const payload = { question, top_k: 5, min_score: 0.1 };
-
+  const q = queryInput.value.trim();
+  if (!q||isLoading) return;
+  appendMsg("user-message","U",`<p>${esc(q)}</p>`);
+  queryInput.value=""; updateCharCount(queryInput); autoResize(queryInput); setLoading(true);
+  const {messageDiv,answerBlock} = createStreamMsg();
   try {
-    const res  = await fetch(`${API_BASE}/api/query`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "API error");
-    removeMessage(loadingId);
-    appendBotAnswer(data);
-  } catch (err) {
-    removeMessage(loadingId);
-    appendError(err.message);
-  } finally {
-    setLoading(false);
-  }
+    const res = await fetch(`${API}/api/query/stream`, {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({question:q, top_k:5, min_score:0.1, session_id:sessionId})});
+    if (!res.ok) throw new Error((await res.json()).detail||"API error");
+    const reader=res.body.getReader(), dec=new TextDecoder(); let buf="",full="",meta=null;
+    while(true) {
+      const {done,value}=await reader.read(); if(done) break;
+      buf+=dec.decode(value,{stream:true});
+      const parts=buf.split("\n\n"); buf=parts.pop();
+      for (const block of parts) {
+        if(!block.trim()) continue;
+        let ev="",data="";
+        for(const ln of block.split("\n")){if(ln.startsWith("event:"))ev=ln.slice(6).trim();if(ln.startsWith("data:"))data=ln.slice(5).trim();}
+        if(!ev||!data) continue;
+        if(ev==="meta"){meta=JSON.parse(data); sessionId=meta.session_id||sessionId;}
+        if(ev==="token"){full+=JSON.parse(data).token; answerBlock.innerHTML=marked.parse(full); scrollBot();}
+        if(ev==="done"&&meta) finishStream(messageDiv,meta,JSON.parse(data),full);
+        if(ev==="error"){answerBlock.classList.add("answer-not-found"); answerBlock.querySelector(".streaming-cursor")?.remove(); answerBlock.innerHTML=`<p>${esc(JSON.parse(data).detail)}</p>`;}
+      }
+    }
+  } catch(e){answerBlock.classList.add("answer-not-found"); answerBlock.querySelector(".streaming-cursor")?.remove(); answerBlock.innerHTML=`<p>${esc(e.message)}</p>`;
+  } finally{setLoading(false); scrollBot();}
 }
 
-async function summarizeNotes() {
-  if (isLoading) return;
-  appendUserMessage("Summarizing the indexed notes comprehensively...");
-  const loadingId = appendLoading();
-  setLoading(true);
-
-  try {
-    const res  = await fetch(`${API_BASE}/api/summarize`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source: null }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "API error");
-    removeMessage(loadingId);
-    appendBotAnswer(data);
-  } catch (err) {
-    removeMessage(loadingId);
-    appendError(err.message);
-  } finally {
-    setLoading(false);
-  }
+function createStreamMsg() {
+  const div=document.createElement("div"); div.className="message bot-message";
+  div.innerHTML=`<div class="message-icon">⬡</div><div class="message-body"></div>`;
+  const ab=document.createElement("div"); ab.className="answer-block streaming";
+  const cur=document.createElement("span"); cur.className="streaming-cursor"; cur.textContent="▊";
+  ab.appendChild(cur); div.querySelector(".message-body").appendChild(ab);
+  chatWindow.appendChild(div); scrollBot();
+  return {messageDiv:div, answerBlock:ab};
 }
 
-function appendUserMessage(text) {
-  const div = document.createElement("div");
-  div.className = "message user-message";
-  div.innerHTML = `
-    <div class="message-icon">U</div>
-    <div class="message-body"><p>${escapeHtml(text)}</p></div>`;
-  chatWindow.appendChild(div);
-  scrollToBottom();
+function finishStream(div,meta,done,full) {
+  const body=div.querySelector(".message-body"), ab=body.querySelector(".answer-block");
+  ab.classList.remove("streaming"); ab.querySelector(".streaming-cursor")?.remove();
+  if(!done.answer_found) ab.classList.add("answer-not-found");
+  ab.innerHTML=marked.parse(full);
+  const src=(meta.sources||[]).map(s=>`<span class="source-tag">${esc(s)}</span>`).join("");
+  if(src){const r=document.createElement("div"); r.className="sources-row"; r.innerHTML=src; body.appendChild(r);}
+  scrollBot();
+  loadSessions();
 }
 
-function appendLoading() {
-  const id  = `l-${Date.now()}`;
-  const div = document.createElement("div");
-  div.id        = id;
-  div.className = "message bot-message loading-message";
-  div.innerHTML = `
-    <div class="message-icon">⬡</div>
-    <div class="message-body">
-      <p><span>Model is thinking</span>
-        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-      </p>
-    </div>`;
-  chatWindow.appendChild(div);
-  scrollToBottom();
-  return id;
+function appendMsg(cls,icon,html) {
+  const d=document.createElement("div"); d.className=`message ${cls}`;
+  d.innerHTML=`<div class="message-icon">${icon}</div><div class="message-body">${html}</div>`;
+  chatWindow.appendChild(d); scrollBot();
 }
 
 function appendBotAnswer(data) {
-  const div = document.createElement("div");
-  div.className = "message bot-message";
-
-  const sourcesHtml = (data.sources || [])
-    .map(s => `<span class="source-tag">${escapeHtml(s)}</span>`)
-    .join("");
-
-  const chunksHtml = (data.chunks || []).map(c => `
-    <div class="chunk-item">
-      <div class="chunk-meta">
-        <span>${escapeHtml(c.source)}</span>
-        <span>p.${c.page}</span>
-        <span class="score">score: ${c.score.toFixed(3)}</span>
-        <span>${escapeHtml(c.chunk_id)}</span>
-      </div>
-      <div class="chunk-text">${escapeHtml(c.text)}</div>
-    </div>`).join("");
-
-  const toggleId = `t-${Date.now()}`;
-  const listId   = `cl-${Date.now()}`;
-
-  // Format model name for display
-  const modelDisplay = data.model_used
-    ? data.model_used.split("/").pop().replace(":free", " (free)")
-    : "";
-
-  div.innerHTML = `
-    <div class="message-icon">⬡</div>
-    <div class="message-body">
-      <div class="answer-block ${data.answer_found ? "" : "answer-not-found"}">${escapeHtml(data.answer)}</div>
-      ${sourcesHtml ? `<div class="sources-row">${sourcesHtml}</div>` : ""}
-      ${chunksHtml ? `
-        <button class="chunks-toggle" id="${toggleId}"
-          onclick="toggleChunks('${toggleId}','${listId}')">
-          ▸ Show ${data.chunks.length} retrieved chunk(s)
-        </button>
-        <div class="chunks-list" id="${listId}" style="display:none">${chunksHtml}</div>
-      ` : ""}
-      <div class="query-meta">⏱ ${data.query_time_ms}ms · ${data.retrieved_count} chunk(s) retrieved</div>
-    </div>`;
-  chatWindow.appendChild(div);
-  scrollToBottom();
+  const src=(data.sources||[]).map(s=>`<span class="source-tag">${esc(s)}</span>`).join("");
+  const d=document.createElement("div"); d.className="message bot-message";
+  d.innerHTML=`<div class="message-icon">⬡</div><div class="message-body">
+    <div class="answer-block ${data.answer_found?"":"answer-not-found"}">${marked.parse(data.answer)}</div>
+    ${src?`<div class="sources-row">${src}</div>`:""}</div>`;
+  chatWindow.appendChild(d); scrollBot();
 }
 
-function appendError(msg) {
-  const div = document.createElement("div");
-  div.className = "message bot-message";
-  div.innerHTML = `
-    <div class="message-icon" style="background:rgba(240,106,106,.15);color:var(--error)">!</div>
-    <div class="message-body">
-      <div class="answer-block answer-not-found">${escapeHtml(msg)}</div>
-    </div>`;
-  chatWindow.appendChild(div);
-  scrollToBottom();
-}
-
-function removeMessage(id)  { document.getElementById(id)?.remove(); }
-function clearChat()        { chatWindow.innerHTML = ""; }
-function fillQuery(text)    { queryInput.value = text; updateCharCount(queryInput); queryInput.focus(); }
-
-function toggleChunks(toggleId, listId) {
-  const list  = document.getElementById(listId);
-  const btn   = document.getElementById(toggleId);
-  const open  = list.style.display !== "none";
-  list.style.display = open ? "none" : "flex";
-  btn.textContent = open
-    ? `▸ Show ${list.children.length} retrieved chunk(s)`
-    : `▾ Hide retrieved chunk(s)`;
-}
-
-// ── Upload ────────────────────────────────────────────────────────────────────
+// Upload
 async function handleFiles(files) {
-  if (!files?.length) return;
-  const file = files[0];
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
-    showUploadStatus("Only PDF files are supported.", "error"); return;
-  }
-  showUploadStatus(`Uploading ${file.name}…`, "");
-  const fd = new FormData();
-  fd.append("file", file);
+  if(!files?.length) return;
+  const f=files[0];
+  if(!f.name.toLowerCase().endsWith(".pdf")){showUpload("Only PDF supported.","error");return;}
+  showUpload(`Uploading ${f.name}…`,"");
+  const fd=new FormData(); fd.append("file",f);
   try {
-    const res  = await fetch(`${API_BASE}/api/upload-and-index`, { method: "POST", body: fd });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail);
-    showUploadStatus(`✓ ${file.name} uploaded. Indexing in background…`, "success");
-    setTimeout(checkHealth, 5000);
-    setTimeout(checkHealth, 15000);
-  } catch (err) {
-    showUploadStatus(`✗ ${err.message}`, "error");
-  }
-  fileInput.value = "";
+    const r=await fetch(`${API}/api/upload-and-index`,{method:"POST",body:fd}), d=await r.json();
+    if(!r.ok) throw new Error(d.detail);
+    showUpload(`✓ ${f.name} uploaded. Indexing…`,"success");
+    setTimeout(checkHealth,5000); setTimeout(checkHealth,15000);
+  } catch(e){showUpload(`✗ ${e.message}`,"error");}
+  fileInput.value="";
 }
+function showUpload(msg,type){uploadStatus.textContent=msg; uploadStatus.className=`upload-status ${type}`;}
 
-function showUploadStatus(msg, type) {
-  uploadStatus.textContent = msg;
-  uploadStatus.className   = `upload-status ${type}`;
-}
-
-// ── Utils ─────────────────────────────────────────────────────────────────────
-function setLoading(v)    { isLoading = v; sendBtn.disabled = v; document.getElementById("send-icon").textContent = v ? "…" : "→"; }
-function scrollToBottom() { chatWindow.scrollTop = chatWindow.scrollHeight; }
-function autoResize(el)   { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 140) + "px"; }
-function updateCharCount(el) { const c = document.getElementById("char-count"); if (c) c.textContent = `${el.value.length} / 1000`; }
-function truncate(s, n)   { return s.length > n ? "…" + s.slice(-(n-1)) : s; }
-function escapeHtml(s)    { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+// Utils
+function setLoading(v){isLoading=v; sendBtn.disabled=v; $("send-icon").textContent=v?"…":"→";}
+function scrollBot(){chatWindow.scrollTop=chatWindow.scrollHeight;}
+function autoResize(el){el.style.height="auto"; el.style.height=Math.min(el.scrollHeight,140)+"px";}
+function updateCharCount(el){const c=$("char-count"); if(c) c.textContent=`${el.value.length} / 1000`;}
+function clearChat(){chatWindow.innerHTML="";}

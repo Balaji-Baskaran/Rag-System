@@ -1,0 +1,62 @@
+Project: rag-system
+
+Purpose:
+This project is a Retrieval-Augmented Generation (RAG) application built using Flask. It allows users to upload PDF documents, index the document content into a vector database, and ask natural language questions against the uploaded documents. The app combines retrieval of relevant text chunks with a large language model to provide answers grounded in the document content.
+
+Key Libraries and Why They Are Used:
+- flask: Provides the web server and REST API routing for health checks, file upload, query, and summary endpoints.
+- flask-cors: Enables cross-origin requests for the frontend and API interaction.
+- langchain: Provides the RAG workflow primitives, prompt templating, document handling, and integration with retrievers and LLMs.
+- langchain-huggingface: Loads sentence-transformers embeddings for vector representation of text.
+- langchain-chroma: Integrates with ChromaDB as the vector database backend for similarity search.
+- chromadb: Stores document embeddings and performs fast nearest-neighbor retrieval.
+- sentence-transformers: Generates high-quality dense embeddings for document chunks.
+- rank-bm25: Included for potential retrieval use, though the current implementation primarily relies on vector similarity retrieval.
+- pypdf: Extracts text from uploaded PDF documents page by page.
+- requests: Sends HTTP requests to the OpenRouter API for language model completion.
+- python-dotenv: Loads environment variables from a .env file, allowing configuration of API keys and model settings.
+- werkzeug: Handles secure file upload naming.
+
+Implementation Summary:
+- app.py: Creates the Flask application, registers blueprints, serves the frontend, and starts RAG initialization in a background thread.
+- config.py: Defines global configuration values like embedding model, chunking settings, OpenRouter model settings, allowed upload types, prompt templates, and logging configuration.
+- rag_core/state.py: Holds the shared RAG state, including embeddings, vector store, LLM, QA chain, readiness flags, and a lock. It initializes the system asynchronously to avoid blocking startup.
+- rag_core/llm.py: Implements an OpenRouter LLM wrapper that calls the OpenRouter chat completions API and returns generated text.
+- rag_core/vectorstore.py: Loads HuggingFace embeddings and builds or reuses a persistent Chroma vectorstore collection.
+- rag_core/indexer.py: Loads PDF files with pypdf, splits extracted text into overlapping chunks using RecursiveCharacterTextSplitter, and indexes the chunks into Chroma.
+- rag_core/chain.py: Builds the QA chain by combining a retriever from Chroma with prompt formatting and the LLM.
+- api/upload.py: Accepts PDF uploads, saves files to disk, and starts background indexing to add document chunks into the vector database.
+- api/query.py: Accepts user questions, performs similarity search over embeddings, filters by score, constructs a prompt with retrieved context, and calls the LLM to generate an answer.
+- api/health.py: Exposes health and stats endpoints to check whether the RAG system is ready and inspect indexed document sources.
+
+Algorithm and Workflow:
+1. Initialization:
+   - Load environment variables and configuration.
+   - Create or load a ChromaDB collection for embeddings.
+   - Initialize HuggingFace embeddings with a sentence-transformers model.
+   - Create an OpenRouter LLM wrapper to send prompts to the chosen model.
+   - Build the QA chain with retriever and prompt template.
+
+2. Upload and Index:
+   - Receive a PDF file upload via the /api/upload-and-index endpoint.
+   - Save the PDF securely to the uploads folder.
+   - Start a background thread to index the document.
+   - Extract text from each PDF page using pypdf.
+   - Split the page text into chunks using RecursiveCharacterTextSplitter, with configurable chunk size and overlap.
+   - Store each chunk and associated metadata (source file, page number) into the Chroma vectorstore.
+   - Rebuild the QA chain after indexing so retrieval uses the updated vectorstore.
+
+3. Query:
+   - Accept a natural language question through /api/query.
+   - Use Chroma similarity search to find the top-k most relevant chunks for the question.
+   - Optionally filter results by a minimum relevance score.
+   - Format the retrieved chunks into a context block with source and page metadata.
+   - Insert the context and question into a prompt template.
+   - Send the prompt to the OpenRouter LLM and return the answer with metadata.
+
+4. Summarize:
+   - Generate a summary of indexed content by performing a similarity search using a seed query for summary concepts.
+   - Build a context prompt from retrieved chunks and send it to the OpenRouter LLM.
+   - Return the generated summary text.
+
+Overall, the project implements a standard RAG pipeline using PDF ingestion, text chunking, embedding-based retrieval, and LLM answer generation. It is designed to support document-centric question answering with modular Flask APIs and a persistent Chroma vector database.

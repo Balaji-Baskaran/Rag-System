@@ -1,117 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="StudentRAG — Upload academic PDFs and get instant AI-powered answers, summaries, and quizzes powered by a retrieval-augmented generation system." />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="StudentRAG — AI-powered academic PDF assistant with streaming answers and conversation memory."/>
   <title>StudentRAG — Academic Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <style>
-    /* Global Reset & Scrollbar Hide */
-    html, body, * {
-        scrollbar-width: none !important;
-        -ms-overflow-style: none !important;
-    }
-    ::-webkit-scrollbar {
-        display: none !important;
-    }
-  </style>
+  <link rel="stylesheet" href="/static/css/style.css"/>
 </head>
 <body>
-
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-header">
-      <div class="logo">
-        <span class="logo-icon">⬡</span>
-        <span class="logo-text">StudentRAG</span>
+    <div class="sidebar-top">
+      <div class="sidebar-brand">
+        <div class="logo"><span class="logo-icon">⬡</span><span class="logo-text">StudentRAG</span></div>
       </div>
-      <p class="sidebar-sub">Academic PDF Assistant</p>
-    </div>
-
-    <div class="sidebar-section">
-      <h3>DASHBOARD</h3>
-      <div class="status-grid">
-        <div class="status-row">
-          <span class="status-label">API Status</span>
-          <span id="status-api" class="status-badge loading">checking…</span>
-        </div>
-        <div class="status-row">
-          <span class="status-label">LLM Core</span>
-          <span id="status-llm" class="status-badge loading">—</span>
-        </div>
-        <div class="status-row">
-          <span class="status-label">Vector DB</span>
-          <span id="status-col" class="status-badge loading">—</span>
-        </div>
-        <div class="status-row">
-          <span class="status-label">Total Chunks</span>
-          <span id="status-chunks" class="status-badge">—</span>
-        </div>
+      <div class="sidebar-nav-actions">
+        <button class="chatgpt-new-btn" onclick="newSession()" title="New chat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>New chat</span>
+        </button>
+        <button class="chatgpt-clear-btn" onclick="clearChat()" title="Clear chat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
       </div>
     </div>
 
-    <div class="sidebar-section">
-      <h3>KNOWLEDGE BASE</h3>
-      <div class="upload-zone" id="upload-zone">
-        <input type="file" id="file-input" accept=".pdf" hidden />
-        <span class="upload-icon">↑</span>
-        <p>Drop PDF here or <button class="link-btn" onclick="document.getElementById('file-input').click()">browse</button></p>
+    <div class="sidebar-scrollable">
+      <div class="sidebar-group">
+        <div class="group-title">Chats</div>
+        <ul class="chats-list" id="chats-list"><li class="chats-empty">No previous chats.</li></ul>
       </div>
-      <div id="upload-status" class="upload-status hidden"></div>
+
+      <div class="sidebar-group">
+        <div class="group-title">Knowledge Base</div>
+        <div class="upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept=".pdf" hidden/>
+          <svg class="upload-icon-svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p>Drop PDF or <button class="link-btn" onclick="document.getElementById('file-input').click()">browse</button></p>
+        </div>
+        <div id="upload-status" class="upload-status hidden"></div>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="group-title">Indexed Sources</div>
+        <ul class="sources-list" id="sources-list"><li class="sources-empty">No sources indexed yet.</li></ul>
+      </div>
     </div>
 
-    <div class="sidebar-section">
-      <h3>INDEXED SOURCES</h3>
-      <ul class="sources-list" id="sources-list">
-        <li class="sources-empty">No sources indexed yet.</li>
-      </ul>
+    <div class="sidebar-footer">
+      <div class="footer-label">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>Total Chunks</span>
+      </div>
+      <span id="status-chunks" class="chunks-badge">0</span>
     </div>
-
   </aside>
 
   <main class="chat-main">
     <header class="chat-header">
-      <div>
-        <h1>Chat with Documents</h1>
-        <p>Intelligent Academic Assistant — Fully Prompt Controlled</p>
-      </div>
-      <button class="clear-btn" onclick="clearChat()">↺ Clear Chat</button>
+      <h1>Chat with Documents</h1>
     </header>
-
     <div class="chat-window" id="chat-window">
       <div class="message system-message">
         <div class="message-icon">⬡</div>
         <div class="message-body">
-          <p>Hello! I'm <strong>StudentRAG</strong>. I can help you study, create quizes, and summarize your academic papers.</p>
-          <p style="margin-top: 8px; font-size: 13px; color: var(--text-dim);">Upload a PDF to the Knowledge Base on the left to get started. You can ask for specific mark-based answers or summaries directly in your prompt!</p>
+          <p>Hello! I'm <strong>StudentRAG</strong>. Upload a PDF and ask me anything.</p>
         </div>
       </div>
     </div>
-
     <div class="chat-input-area">
       <div class="input-container">
         <div class="input-row">
-          <textarea
-            id="query-input"
-            placeholder="Ask a question or request a task (e.g. 'Create a quiz for chapter 1')..."
-            rows="1"
-            maxlength="1000"
-            onkeydown="handleKeyDown(event)"
-            oninput="autoResize(this); updateCharCount(this)"
-          ></textarea>
-          <button class="send-btn" id="send-btn" onclick="sendQuery()">
-            <span id="send-icon">→</span>
-          </button>
+          <textarea id="query-input" placeholder="Ask a question..." rows="1" maxlength="1000"
+            onkeydown="handleKeyDown(event)" oninput="autoResize(this); updateCharCount(this)"></textarea>
+          <button class="send-btn" id="send-btn" onclick="sendQuery()"><span id="send-icon">→</span></button>
         </div>
-        <div class="input-meta">
-          <span id="char-count" class="char-count">0 / 1000 characters</span>
-        </div>
+        <div class="input-meta"><span id="char-count" class="char-count">0 / 1000</span></div>
       </div>
     </div>
   </main>
-  
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>

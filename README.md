@@ -19,6 +19,7 @@ This is a modular Retrieval-Augmented Generation (RAG) system built with Flask, 
 - **RAG Engine**: Uses Langchain to chunk and embed documents using `sentence-transformers`.
 - **Vector Database**: Uses ChromaDB to store document embeddings for fast retrieval.
 - **LLM Integration**: Uses OpenRouter to generate answers based on the retrieved context from your documents.
+- **Conversation Memory**: Multi-turn chat memory and session history backed by MySQL (with automatic in-memory fallback).
 - **Background Processing**: Handles document indexing asynchronously.
 - **RESTful API**: Structured and modularized API routes.
 
@@ -114,8 +115,8 @@ This is a modular Retrieval-Augmented Generation (RAG) system built with Flask, 
 
 1. **Clone the repository:**
    ```bash
-   git clone <your-github-repo-url>
-   cd rag-system
+   git clone https://github.com/Balaji-Baskaran/Rag-System.git
+   cd Rag-System
    ```
 
 2. **Create a virtual environment:**
@@ -133,16 +134,29 @@ This is a modular Retrieval-Augmented Generation (RAG) system built with Flask, 
    ```
 
 4. **Environment Variables:**
-   Create a `.env` file in the root directory and add your OpenRouter API key:
+   Create a `.env` file in the root directory and add your OpenRouter API key and MySQL settings (optional):
    ```ini
    OPENROUTER_API_KEY=your_api_key_here
    OPENROUTER_MODEL=openai/gpt-4o-mini
    EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
    CHUNK_SIZE=1024
    CHUNK_OVERLAP=200
+
+   # MySQL settings (optional, defaults to root@localhost:3306)
+   MYSQL_HOST=127.0.0.1
+   MYSQL_PORT=3306
+   MYSQL_USER=root
+   MYSQL_PASSWORD=
+   MYSQL_DATABASE=studentrag
    ```
 
-5. **Run the Application:**
+5. **Initialize Database (Optional for MySQL):**
+   ```bash
+   python setup_db.py
+   ```
+   *(If MySQL is not running, the application will automatically fall back to in-memory session memory).*
+
+6. **Run the Application:**
    ```bash
    python app.py
    ```
