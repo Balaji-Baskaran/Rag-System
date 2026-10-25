@@ -101,7 +101,7 @@ This is a modular Retrieval-Augmented Generation (RAG) system built with Flask, 
 
 ## Application Preview
 
-<img width="1919" height="979" alt="image" src="https://github.com/user-attachments/assets/9a6f0e10-63d3-47bb-8ea6-bed2004a23e9" />
+<img width="1913" height="960" alt="image" src="https://github.com/user-attachments/assets/88a2fa8f-1a87-47bd-bc16-4ace4d7e6b26" />
 
 ---
 ## Prerequisites
