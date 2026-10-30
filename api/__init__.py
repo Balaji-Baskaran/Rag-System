@@ -1,1 +1,0 @@
-"""api — Flask Blueprint package."""
