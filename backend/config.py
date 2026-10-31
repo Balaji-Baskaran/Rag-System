@@ -11,3 +11,10 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 API_KEY    = os.getenv("OPENROUTER_API_KEY", "").strip().strip('"').strip("'")
 MODEL_NAME = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini").strip().strip('"').strip("'")
+
+# MySQL Configuration
+MYSQL_HOST     = os.getenv("MYSQL_HOST", "localhost").strip().strip('"').strip("'")
+MYSQL_PORT     = int(os.getenv("MYSQL_PORT", "3306").strip().strip('"').strip("'") or 3306)
+MYSQL_USER     = os.getenv("MYSQL_USER", "root").strip().strip('"').strip("'")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "").strip().strip('"').strip("'")
+MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "rag_db").strip().strip('"').strip("'")
