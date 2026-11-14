@@ -13,6 +13,7 @@
 <img src="https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge">
 
 </div>
+---
 
 <p align="center">
   A high-performance, modular Retrieval-Augmented Generation (RAG) system powered by <strong>FastAPI</strong>, <strong>LlamaIndex</strong>, <strong>ChromaDB</strong>, and <strong>MySQL</strong>. Upload PDF study materials, index them with local dense embeddings, and have interactive multi-turn conversations with source citations and token streaming.
