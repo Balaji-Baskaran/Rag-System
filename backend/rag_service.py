@@ -4,34 +4,72 @@ from pypdf import PdfReader
 import chromadb
 from llama_index.core import Document, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.retrievers import QueryFusionRetriever
+from llama_index.core.schema import TextNode
+from llama_index.core.llms.mock import MockLLM
+from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.chroma import ChromaVectorStore
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from backend.config import CHROMA_DIR, API_KEY, MODEL_NAME
 
-# 1. Initialize Embeddings and ChromaDB Vector Store
-embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+# 1. Initialize HuggingFace Dense Embeddings and ChromaDB Vector Store
+hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+embed_kwargs = {"cache_folder": str(hf_cache), "local_files_only": True} if hf_cache.exists() else {}
+embed_model = HuggingFaceEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2", **embed_kwargs)
+
 chroma_client = chromadb.PersistentClient(path=CHROMA_DIR)
 chroma_collection = chroma_client.get_or_create_collection("rag_docs")
 vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
 index = VectorStoreIndex.from_vector_store(vector_store, embed_model=embed_model)
 
+# 2. Warm In-Memory Nodes for BM25Retriever (ChromaDB stores vectors, not docstore)
+def load_all_nodes():
+    data = chroma_collection.get(include=["documents", "metadatas"])
+    return [
+        TextNode(id_=i, text=t, metadata=m or {})
+        for i, t, m in zip(data.get("ids", []), data.get("documents", []), data.get("metadatas", []))
+        if t
+    ]
+
+all_nodes = load_all_nodes()
+bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=4) if all_nodes else None
+
 def index_pdf(file_path: Path) -> int:
+    global bm25_retriever, all_nodes
     reader = PdfReader(str(file_path))
-    docs = []
-    for i, page in enumerate(reader.pages):
-        text = (page.extract_text() or "").strip()
-        if text:
-            docs.append(Document(text=text, metadata={"source": file_path.name, "page_num": i + 1}))
+    docs = [
+        Document(text=text, metadata={"source": file_path.name, "page_num": i + 1})
+        for i, page in enumerate(reader.pages)
+        if (text := (page.extract_text() or "").strip())
+    ]
     if not docs:
         return 0
-    splitter = SentenceSplitter(chunk_size=1024, chunk_overlap=150)
+    splitter = SentenceSplitter(chunk_size=1024, chunk_overlap=200)
     nodes = splitter.get_nodes_from_documents(docs)
+    
     index.insert_nodes(nodes)
+    all_nodes.extend(nodes)
+    bm25_retriever = BM25Retriever.from_defaults(nodes=all_nodes, similarity_top_k=4)
     return len(nodes)
 
-def retrieve_nodes(question: str, top_k: int = 4):
-    retriever = index.as_retriever(similarity_top_k=top_k)
-    return retriever.retrieve(question)
+def retrieve_nodes(question: str, top_k: int = 4, mode: str = "hybrid", alpha: float = 0.5):
+    dense_retriever = index.as_retriever(similarity_top_k=top_k)
+    if mode == "dense" or not bm25_retriever:
+        return dense_retriever.retrieve(question)
+
+    bm25_retriever.similarity_top_k = top_k
+    if mode == "sparse":
+        return bm25_retriever.retrieve(question)
+
+    hybrid_retriever = QueryFusionRetriever(
+        retrievers=[dense_retriever, bm25_retriever],
+        similarity_top_k=top_k,
+        num_queries=1,
+        mode="reciprocal_rerank",
+        use_async=False,
+        llm=MockLLM()
+    )
+    return hybrid_retriever.retrieve(question)
 
 def build_prompt(question: str, history: list, nodes: list) -> str:
     history_str = "\n".join([f"{'Student' if m['role']=='human' else 'Assistant'}: {m['content']}" for m in history])
