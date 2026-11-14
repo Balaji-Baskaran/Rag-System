@@ -1,5 +1,7 @@
 <h1 align="center">StudentRAG System</h1>
 
+
+
 <div align="center">
 
 <img src="https://img.shields.io/badge/Frontend-HTML%20%7C%20CSS%20%7C%20JavaScript-blue?style=for-the-badge">
@@ -9,9 +11,8 @@
 <img src="https://img.shields.io/badge/Database-MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white">
 <img src="https://img.shields.io/badge/LLM-OpenRouter-red?style=for-the-badge">
 <img src="https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge">
-</div>
 
---- 
+</div>
 
 <p align="center">
   A high-performance, modular Retrieval-Augmented Generation (RAG) system powered by <strong>FastAPI</strong>, <strong>LlamaIndex</strong>, <strong>ChromaDB</strong>, and <strong>MySQL</strong>. Upload PDF study materials, index them with local dense embeddings, and have interactive multi-turn conversations with source citations and token streaming.
@@ -19,7 +20,20 @@
 
 ---
 
-## System Architecture
+## ✨ Key Features
+
+- **Document Ingestion & Chunking**: Upload PDF documents with automatic page-aware chunking via LlamaIndex `SentenceSplitter`.
+- **Hybrid Document Retrieval**: Semantic vector search with ChromaDB and BM25 keyword matching for finding relevant study material.
+- **Local Embedding Generation**: Generates dense embeddings locally using `sentence-transformers/all-MiniLM-L6-v2` with zero per-query embedding API costs.
+- **Persistent Vector Store**: ChromaDB vector index persists embeddings across server restarts.
+- **LLM Streaming (SSE)**: Real-time response generation using Server-Sent Events with OpenRouter API.
+- **Conversation History & Session Persistence**: Multi-session chat support with persistent history stored in MySQL database.
+- **Precise Citation**: Contextual metadata tracking including document names and page numbers in retrieved citations.
+- **Clean Responsive UI**: Modern glassmorphic dark interface with real-time markdown parsing and sidebar session switching.
+
+---
+
+## 🏗️ System Architecture
 
 ```text
                ┌───────────────────────────────┐
@@ -45,20 +59,18 @@
    └──────────────────────────┬─────────────────────────────┘
                               ↓
    ┌────────────────────────────────────────────────────────┐
-   │ 1. Retrieve top-k semantic chunks (ChromaDB)           │
-   │ 2. Fetch conversation history for session (MySQL)       │
-   │ 3. Build enriched context prompt                       │
+   │ 1. Retrieve relevant chunks (ChromaDB & BM25)          │
+   │ 2. Fetch conversation history for session (MySQL)      │    
    └──────────────────────────┬─────────────────────────────┘
                               ↓
    ┌────────────────────────────────────────────────────────┐
-   │     OpenRouter API Stream (SSE) -> Frontend UI         │
+   │                     Frontend                           │
    └────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-
-## Setup & Installation
+## 🚀 Setup & Installation
 
 ### 1. Prerequisites
 - Python 3.9+
@@ -90,6 +102,10 @@ pip install -r requirements.txt
 ### 5. Configure Environment Variables
 Copy `.env.example` to `.env` and fill in your credentials:
 ```bash
+# Windows (PowerShell)
+Copy-Item .env.example .env
+
+# Linux / macOS
 cp .env.example .env
 ```
 
@@ -101,13 +117,11 @@ OPENROUTER_MODEL=openai/gpt-4o-mini
 
 # MySQL Database Configuration
 MYSQL_HOST=localhost
-MYSQL_PORT=port_number
-MYSQL_USER=your_user_name
+MYSQL_PORT=3306
+MYSQL_USER=root
 MYSQL_PASSWORD=your_mysql_password
 MYSQL_DATABASE=rag_db
 ```
-
-*(Note: If MySQL is not running or credentials are empty, the backend logs a warning and session memory falls back gracefully.)*
 
 ### 6. Run the Application
 ```bash
@@ -120,8 +134,10 @@ http://127.0.0.1:5000/
 
 ---
 
-## Application Preview
+## 📸 Application Preview
 
-<img width="1915" height="970" alt="image" src="https://github.com/user-attachments/assets/ffc67888-cf94-497d-bb64-96a35c55e2c1" />
+<p align="center">
+  <img width="1915" height="970" alt="StudentRAG Preview" src="https://github.com/user-attachments/assets/ffc67888-cf94-497d-bb64-96a35c55e2c1" />
+</p>
 
 ---
