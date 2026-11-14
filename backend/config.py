@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
+load_dotenv(BASE_DIR / "backend" / ".env")
 
 CHROMA_DIR = str(BASE_DIR / "chroma_db" / "rag_docs")
 UPLOAD_DIR = BASE_DIR / "uploads"
