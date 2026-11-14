@@ -4,17 +4,25 @@ from backend import config
 
 def get_conn():
     return pymysql.connect(
-        host=config.MYSQL_HOST, port=config.MYSQL_PORT,
-        user=config.MYSQL_USER, password=config.MYSQL_PASSWORD,
-        database=config.MYSQL_DATABASE, autocommit=True,
+        host=config.MYSQL_HOST, 
+        port=config.MYSQL_PORT,
+        user=config.MYSQL_USER,
+        password=config.MYSQL_PASSWORD,
+        database=config.MYSQL_DATABASE, 
+        autocommit=True,
+        connect_timeout=3,
         cursorclass=pymysql.cursors.DictCursor
     )
 
 def init_db():
     try:
         conn = pymysql.connect(
-            host=config.MYSQL_HOST, port=config.MYSQL_PORT,
-            user=config.MYSQL_USER, password=config.MYSQL_PASSWORD, autocommit=True
+            host=config.MYSQL_HOST, 
+            port=config.MYSQL_PORT,
+            user=config.MYSQL_USER, 
+            password=config.MYSQL_PASSWORD, 
+            autocommit=True,
+            connect_timeout=3
         )
         with conn.cursor() as cur:
             cur.execute(f"CREATE DATABASE IF NOT EXISTS `{config.MYSQL_DATABASE}`")
