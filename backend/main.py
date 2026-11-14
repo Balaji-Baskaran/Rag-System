@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI):
     db.init_db()
     yield
 
-app = FastAPI(title="StudentRAG Backend (LlamaIndex)", lifespan=lifespan)
+app = FastAPI(title="StudentRAG Backend (LlamaIndex + Hybrid Retrieval)", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 static_dir = BASE_DIR / "frontend" / "static"
@@ -34,6 +34,9 @@ class QueryReq(BaseModel):
     question: str
     history: Optional[List[Dict[str, str]]] = None
     session_id: Optional[str] = None
+    mode: Optional[str] = "hybrid"   # 'hybrid', 'dense', or 'sparse'
+    top_k: Optional[int] = 4
+    alpha: Optional[float] = 0.5    # Dense weight for RRF (0.0 to 1.0)
 
 @app.post("/api/upload-and-index", tags=["Upload"])
 @app.post("/api/upload", tags=["Upload"])
@@ -43,18 +46,31 @@ async def upload_pdf(file: UploadFile = File(...)):
     save_path = UPLOAD_DIR / Path(file.filename).name
     save_path.write_bytes(await file.read())
     count = rag.index_pdf(save_path)
-    return {"message": f"'{file.filename}' indexed ({count} chunks)", "filename": file.filename}
+    if count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{file.filename}' contains no readable digital text (0 characters extracted). The PDF is made of scanned images or photos, so 0 chunks were created or loaded into the vector database."
+        )
+    return {
+        "message": f"'{file.filename}' indexed ({count} chunks into Dense & BM25 indexes)",
+        "filename": file.filename,
+        "chunks": count
+    }
 
 @app.post("/api/query/stream", tags=["Chat"])
 def query_stream(req: QueryReq):
     session_id = req.session_id or "default"
-    nodes = rag.retrieve_nodes(req.question, top_k=4)
+    mode = req.mode or "hybrid"
+    top_k = req.top_k or 4
+    alpha = req.alpha if req.alpha is not None else 0.5
+
+    nodes = rag.retrieve_nodes(req.question, top_k=top_k, mode=mode, alpha=alpha)
     sources = sorted(list({n.node.metadata.get("source") for n in nodes if n.node.metadata.get("source")}))
     recent_history = req.history if req.history is not None else db.get_history(session_id, limit=6)
     prompt = rag.build_prompt(req.question, recent_history, nodes)
 
     def event_stream():
-        yield f"event: meta\ndata: {json.dumps({'sources': sources})}\n\n"
+        yield f"event: meta\ndata: {json.dumps({'sources': sources, 'mode': mode})}\n\n"
         full_tokens = []
         try:
             for token in rag.stream_llm(prompt):
@@ -75,7 +91,11 @@ def query_stream(req: QueryReq):
 @app.post("/api/chat", tags=["Chat"])
 def chat_sync(req: QueryReq):
     session_id = req.session_id or "default"
-    nodes = rag.retrieve_nodes(req.question, top_k=4)
+    mode = req.mode or "hybrid"
+    top_k = req.top_k or 4
+    alpha = req.alpha if req.alpha is not None else 0.5
+
+    nodes = rag.retrieve_nodes(req.question, top_k=top_k, mode=mode, alpha=alpha)
     sources = sorted(list({n.node.metadata.get("source") for n in nodes if n.node.metadata.get("source")}))
     recent_history = req.history if req.history is not None else db.get_history(session_id, limit=6)
     prompt = rag.build_prompt(req.question, recent_history, nodes)
@@ -83,7 +103,33 @@ def chat_sync(req: QueryReq):
     
     db.save_message(session_id, "human", req.question)
     db.save_message(session_id, "ai", answer)
-    return {"answer": answer, "sources": sources}
+    return {"answer": answer, "sources": sources, "retrieval_mode": mode}
+
+@app.post("/api/retrieve", tags=["Retrieval"])
+def retrieve_inspect(req: QueryReq):
+    """Inspect retrieved chunks and scores without invoking the LLM."""
+    mode = req.mode or "hybrid"
+    top_k = req.top_k or 4
+    alpha = req.alpha if req.alpha is not None else 0.5
+    nodes = rag.retrieve_nodes(req.question, top_k=top_k, mode=mode, alpha=alpha)
+    results = [
+        {
+            "rank": i + 1,
+            "id": getattr(n.node, "node_id", None) or getattr(n.node, "id_", None),
+            "score": round(float(n.score), 6) if n.score is not None else None,
+            "source": n.node.metadata.get("source", "Unknown"),
+            "page": n.node.metadata.get("page_num", "N/A"),
+            "text": n.node.get_content()
+        }
+        for i, n in enumerate(nodes)
+    ]
+    return {
+        "question": req.question,
+        "mode": mode,
+        "alpha": alpha,
+        "count": len(results),
+        "results": results
+    }
 
 @app.get("/api/history/{session_id}", tags=["Chat"])
 def get_session_history(session_id: str):
@@ -102,8 +148,15 @@ def clear_chat(payload: Optional[dict] = None):
 
 @app.get("/api/health", tags=["Health"])
 def health():
-    count = rag.chroma_collection.count()
-    return {"status": "ok", "collection_status": "ready", "total_chunks": count}
+    dense_count = rag.chroma_collection.count()
+    bm25_count = len(rag.all_nodes)
+    return {
+        "status": "ok",
+        "collection_status": "ready",
+        "total_chunks": dense_count,
+        "bm25_chunks": bm25_count,
+        "retrieval_mode": "hybrid (QueryFusionRetriever + BM25Retriever via RRF)"
+    }
 
 @app.get("/api/stats", tags=["Health"])
 def stats():
