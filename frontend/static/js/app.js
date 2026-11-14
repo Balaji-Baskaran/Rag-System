@@ -87,8 +87,13 @@ async function handleFiles(files) {
   fd.append("file", f);
   try {
     const res = await fetch("/api/upload-and-index", { method: "POST", body: fd });
-    if (!res.ok) throw new Error((await res.json()).detail);
-    showUpload(`✓ ${f.name} indexed successfully.`, "success");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Upload failed");
+    if (data.chunks === 0) {
+      showUpload(`⚠ ${f.name}: 0 chunks indexed (scanned/image PDF with no selectable text).`, "error");
+    } else {
+      showUpload(`✓ ${f.name} indexed successfully (${data.chunks} chunks).`, "success");
+    }
     refreshState();
   } catch (e) { showUpload(`✗ ${e.message}`, "error"); }
   fileInput.value = "";
